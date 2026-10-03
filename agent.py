@@ -157,7 +157,7 @@ def execute_llm_call(conversation: List[Dict[str, str]]):
     response = openai_client.chat.completions.create(
         model="qwen/qwen3.8-27b",
         messages=conversation,
-        max_completion_tokens=2000
+        max_tokens=800
     )
     return response.choices[0].message.content
 
@@ -167,42 +167,91 @@ def run_coding_agent_loop():
         "role": "system",
         "content": get_full_system_prompt()
     }]
+
+    iteration = 0
+
     while True:
         try:
             user_input = input(f"{YOU_COLOR}You:{RESET_COLOR}:")
         except (KeyboardInterrupt, EOFError):
             break
+
         conversation.append({
             "role": "user",
             "content": user_input.strip()
         })
+
         while True:
+            iteration += 1
+
+            print(f"\n{'=' * 60}")
+            print(f"ITERATION {iteration}")
+            print(f"{'=' * 60}")
+
             assistant_response = execute_llm_call(conversation)
+
+            print("\n--- RAW MODEL RESPONSE ---")
+            print(assistant_response)
+
             tool_invocations = extract_tool_invocations(assistant_response)
+
             if not tool_invocations:
-                print(f"{ASSISTANT_COLOR}Assistant:{RESET_COLOR}: {assistant_response}")
+                print("\n--- THOUGHT / FINAL RESPONSE ---")
+                print(assistant_response)
+
                 conversation.append({
                     "role": "assistant",
                     "content": assistant_response
                 })
+
+                print("\n--- LOOP STOP ---")
                 break
+
+            thought_lines = []
+
+            for line in assistant_response.splitlines():
+                if not line.strip().startswith("tool:"):
+                    thought_lines.append(line)
+
+            thought = "\n".join(thought_lines).strip()
+
+            print("\n--- THOUGHT ---")
+            if thought:
+                print(thought)
+            else:
+                print("(nenhum texto antes da chamada da tool)")
+
             for name, args in tool_invocations:
+
+                print("\n--- ACTION ---")
+                print(f"Tool: {name}")
+                print(f"Arguments: {json.dumps(args, ensure_ascii=False)}")
+
                 tool = TOOL_REGISTRY[name]
                 resp = ""
-                print(name, args)
+
                 if name == "read_file":
                     resp = tool(args.get("filename", "."))
                 elif name == "list_files":
                     resp = tool(args.get("path", "."))
                 elif name == "edit_file":
-                    resp = tool(args.get("path", "."),
-                                args.get("old_str", ""),
-                                args.get("new_str", ""))
+                    resp = tool(
+                        args.get("path", "."),
+                        args.get("old_str", ""),
+                        args.get("new_str", "")
+                    )
+
+                print("\n--- OBSERVATION ---")
+                print(json.dumps(resp, ensure_ascii=False, indent=2))
+
                 conversation.append({
                     "role": "user",
                     "content": f"tool_result({json.dumps(resp)})"
                 })
 
+                print("\n--- CONTEXT UPDATED ---")
+                print("O resultado da tool foi adicionado à conversation.")
+
 
 if __name__ == "__main__":
-    run_coding_agent_loop()
+    run_coding_agent_loop()               
